@@ -35,12 +35,12 @@ contract RedditRegister is usingOraclize {
     owner = msg.sender;
   }
 
-  function lookupAddr(address _addr) public returns(string name) {
+  function lookupAddr(address _addr) public constant returns(string name) {
     AddressRegisteredToName(_addr, addrToName[_addr]);
     return addrToName[_addr];
   }
 
-  function lookupName(string _name) public returns(address addr) {
+  function lookupName(string _name) public constant returns(address addr) {
     NameRegisteredToAddress(_name, nameToAddr[_name]);
     return nameToAddr[_name];
   }
@@ -78,9 +78,10 @@ contract RedditRegister is usingOraclize {
   function register(string _hash, address _addr) public payable returns(bool success) {
       //_addr not strictly needed - but we use it to do an upfront check to avoid wasted oracle queries
       if (msg.sender != _addr) return false;
-      uint oraclePrice = oraclize.getPrice("URL");
-      if ((2 * oraclePrice) > msg.value) {
-        throw;
+      uint oraclePrice = oraclize_getPrice("URL");
+      if ((2 * oraclePrice) > this.balance) {
+        InsufficientFunds(this.balance, 2 * oraclePrice);
+        return false;
       }
       string memory addrOracleQuery = strConcat('json(https://www.reddit.com/r/ethereumproofs/comments/', _hash, '.json).0.data.children.0.data.title');
       string memory nameOracleQuery = strConcat('json(https://www.reddit.com/r/ethereumproofs/comments/', _hash, '.json).0.data.children.0.data.author');

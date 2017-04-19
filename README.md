@@ -7,9 +7,9 @@
 
 ## Some notes
 
-* Pull larger json blob from reddit via Oraclize and parse it (I've looked at jsmnsol-lib). This would mean a single Oraclize call which would be simpler, but more tricky parsing. In particular with jsmnsol-lib you would need to walk over each json token, checking for key / value pairs that match. On the plus side we could store more information related to the account.
+* The register function requires payment in order to fund the Oraclize queries. If the RedditRegister contract does not have sufficient funds it will return false. Excess or insufficient funds are not returned to the caller, but maintained by the contract to help with future calls. No funds can ever be directly withdrawn from the contract.
 
-* Refund excess msg.value to caller. Some msg.value is required to fund the Oraclize calls - currently the contract throws if too little is sent, but ignores too much being sent. Ideally this would be done with a withdraw contract (perhaps using Zepplin's withdrawable approach) to avoid stack overflow / bad fallback functions etc..
+* Instead of making two Oraclize calls, we could pull a larger json blob from reddit via Oraclize and parse it in the smart contract (e.g. using jsmnsol-lib). This would mean a single Oraclize call which would be simpler, but more tricky parsing. In particular with jsmnsol-lib you would need to walk over each json token, checking for key / value pairs that match. On the plus side we could retrieve more information related to the account.
 
 * Contract required posted address (on reddit.com/r/ethereumproofs) to be all lower-case. The address parsing logic in Oraclize library requires this. This function could be re-written to be more forgiving.
 
