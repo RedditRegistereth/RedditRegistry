@@ -5,13 +5,11 @@ import "../installed_contracts/oraclize/contracts/usingOraclize.sol";
 contract RedditRegister is usingOraclize {
 
   event NameAddressRegistered(string _name, address _addr);
-  event NameRegisteredToAddress(string _name, address _addr);
-  event AddressRegisteredToName(address _addr, string _name);
   event AddressOracleReceived(string _result, bytes32 _id);
   event AddressOracleSent(string _url, bytes32 _id);
   event NameOracleReceived(string _result, bytes32 _id);
   event NameOracleSent(string _url, bytes32 _id);
-  event AddressMismatch(address _input, address _reddit);
+  event AddressMismatch(address _actual, address _expected);
   event InsufficientFunds(uint _funds, uint _cost);
 
   enum OracleType { NAME, ADDR }
@@ -35,13 +33,11 @@ contract RedditRegister is usingOraclize {
     owner = msg.sender;
   }
 
-  function lookupAddr(address _addr) public constant returns(string name) {
-    AddressRegisteredToName(_addr, addrToName[_addr]);
+  function lookupAddr(address _addr) public constant returns(string) {
     return addrToName[_addr];
   }
 
-  function lookupName(string _name) public constant returns(address addr) {
-    NameRegisteredToAddress(_name, nameToAddr[_name]);
+  function lookupName(string _name) public constant returns(address) {
     return nameToAddr[_name];
   }
 
@@ -75,9 +71,12 @@ contract RedditRegister is usingOraclize {
 
   }
 
-  function register(string _hash, address _addr) public payable returns(bool success) {
+  function register(string _hash, address _addr) public payable returns(bool) {
       //_addr not strictly needed - but we use it to do an upfront check to avoid wasted oracle queries
-      if (msg.sender != _addr) return false;
+      if (msg.sender != _addr) {
+        AddressMismatch(msg.sender, _addr);
+        return false;
+      }
       uint oraclePrice = oraclize_getPrice("URL");
       if ((2 * oraclePrice) > this.balance) {
         InsufficientFunds(this.balance, 2 * oraclePrice);
@@ -91,11 +90,13 @@ contract RedditRegister is usingOraclize {
       NameOracleSent(nameOracleQuery, nameOracleId);
       oracleCallbackType[addrOracleId] = OracleType.ADDR;
       oracleCallbackType[nameOracleId] = OracleType.NAME;
+      addrToNameCallbackId[addrOracleId] = nameOracleId;
+      nameToAddrCallbackId[nameOracleId] = addrOracleId;
       oracleExpectedAddress[addrOracleId] = msg.sender;
       return true;
   }
 
-  function update(string _name, address _addr) internal returns(bool success) {
+  function update(string _name, address _addr) internal returns(bool) {
     addrToName[_addr] = _name;
     nameToAddr[_name] = _addr;
     NameAddressRegistered(_name, _addr);
