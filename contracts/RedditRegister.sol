@@ -11,6 +11,7 @@ contract RedditRegister is usingOraclize {
   event NameOracleSent(string _url, bytes32 _id);
   event AddressMismatch(address _actual, address _expected);
   event InsufficientFunds(uint _funds, uint _cost);
+  event BadOracleResult(string _message, bytes32 _id);
 
   enum OracleType { NAME, ADDR }
 
@@ -33,19 +34,22 @@ contract RedditRegister is usingOraclize {
     owner = msg.sender;
   }
 
-  function lookupAddr(address _addr) public constant returns(string) {
+  function lookupAddr(address _addr) public constant returns(string name) {
     return addrToName[_addr];
   }
 
-  function lookupName(string _name) public constant returns(address) {
+  function lookupName(string _name) public constant returns(address addr) {
     return nameToAddr[_name];
   }
 
   function __callback(bytes32 _id, string _result) {
 
     if (msg.sender != oraclize_cbAddress()) throw;
-
-    if (oracleCallbackType[_id] == OracleType.ADDR) {
+    bytes memory resultBytes = bytes(_result);
+    uint resultLength = resultBytes.length;
+    if (resultLength == 0) {
+      BadOracleResult("Empty result returned from Oracle", _id);
+    } else if (oracleCallbackType[_id] == OracleType.ADDR) {
       AddressOracleReceived(_result, _id);
       address oracleAddr = parseAddr(_result);
       if (oracleExpectedAddress[_id] == oracleAddr) {
@@ -71,7 +75,7 @@ contract RedditRegister is usingOraclize {
 
   }
 
-  function register(string _hash, address _addr) public payable returns(bool) {
+  function register(string _hash, address _addr) public payable returns(bool success) {
       //_addr not strictly needed - but we use it to do an upfront check to avoid wasted oracle queries
       if (msg.sender != _addr) {
         AddressMismatch(msg.sender, _addr);
@@ -96,7 +100,7 @@ contract RedditRegister is usingOraclize {
       return true;
   }
 
-  function update(string _name, address _addr) internal returns(bool) {
+  function update(string _name, address _addr) internal returns(bool success) {
     addrToName[_addr] = _name;
     nameToAddr[_name] = _addr;
     NameAddressRegistered(_name, _addr);
