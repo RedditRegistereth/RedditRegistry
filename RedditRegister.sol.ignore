@@ -1,0 +1,208 @@
+pragma solidity ^0.4.8;
+
+import "../installed_contracts/oraclize/contracts/usingOraclize.sol";
+
+contract RedditRegister is usingOraclize {
+
+  event NameAddressRegistered(string _name, address _addr);
+  event OracleQueryReceived(string _result, bytes32 _id);
+  event OracleQuerySent(string _url, bytes32 _id);
+  event AddressMismatch(address _actual, address _expected);
+  event InsufficientFunds(uint _funds, uint _cost);
+  event BadOracleResult(string _message, string _result, bytes32 _id);
+  event MessageMe(string _string);
+  enum OracleType { NAME, ADDR }
+
+  mapping (address => string) addrToName;
+  mapping (string => address) nameToAddr;
+  mapping (bytes32 => address) oracleExpectedAddress;
+  mapping (bytes32 => bool) oracleCallbackComplete;
+
+  address owner;
+
+  function RedditRegister() {
+    owner = msg.sender;
+  }
+
+  function lookupAddr(address _addr) public constant returns(string name) {
+    return addrToName[_addr];
+  }
+
+  function lookupName(string _name) public constant returns(address addr) {
+    return nameToAddr[_name];
+  }
+
+  /*function __callback(bytes32 _id, string _result) {
+
+    //Check basic error conditions (throw on error)
+    if (msg.sender != oraclize_cbAddress()) throw;
+    if (oracleCallbackComplete[_id]) throw;
+
+    //Record callback received
+    oracleCallbackComplete[_id] = true;
+
+    //Check contract specific error conditions (set event and return on error)
+    bytes memory resultBytes = bytes(_result);
+    if (resultBytes.length == 0) {
+      BadOracleResult("Empty result returned from Oracle", _result, _id);
+      return;
+    }
+    var (parsedSuccess, parsedName, parsedAddress) = parseResult(resultBytes);
+    if (!parsedSuccess) {
+      BadOracleResult("Incorrect length data returned from Oracle", _result, _id);
+      return;
+    }
+
+    //Check validity of claim to address
+    if (oracleExpectedAddress[_id] != parsedAddress) {
+      AddressMismatch(oracleExpectedAddress[_id], redditAddr);
+      return;
+    }
+
+    //We can now update our registry!!!
+    update(parsedName, parsedAddress);
+
+  }*/
+
+  function register(string _hash, address _addr) public payable returns(bool success) {
+      //_addr not strictly needed - but we use it to do an upfront check to avoid wasted oracle queries
+      if (msg.sender != _addr) {
+        AddressMismatch(msg.sender, _addr);
+        return false;
+      }
+      uint oraclePrice = oraclize_getPrice("URL");
+      if ((2 * oraclePrice) > this.balance) {
+        InsufficientFunds(this.balance, 2 * oraclePrice);
+        return false;
+      }
+      string memory oracleQuery = strConcat('json(https://www.reddit.com/r/ethereumproofs/comments/', _hash, '.json).0.data.children.0.data.[title,author]');
+      bytes32 oracleId = oraclize_query("URL", oracleQuery);
+      OracleQuerySent(oracleQuery, oracleId);
+      oracleExpectedAddress[oracleId] = msg.sender;
+      return true;
+  }
+
+  function update(string _name, address _addr) internal returns(bool success) {
+    addrToName[_addr] = _name;
+    nameToAddr[_name] = _addr;
+    NameAddressRegistered(_name, _addr);
+    return true;
+  }
+
+  function parseResult(string _input) internal returns (bool success, string name, string addr) {
+    bytes memory stringBytes = bytes(_input);
+    //Zero length input
+    if (stringBytes.length == 0) {
+      return (false, "", "");
+    }
+    //Non array input
+    if (stringBytes[0] != '[' || stringBytes[stringBytes.length - 1] != ']') {
+      return (false, "", "");
+    }
+    //Need to loop twice:
+    //First loop determine length of strings, and split point in input
+    //Second loop populate correctly sized strings
+    uint tokensFound = 0;
+    uint nameLength = 0;
+    uint addrLength = 0;
+    uint nameStart;
+    uint nameEnd;
+    uint addrStart;
+    uint addrEnd;
+
+    bytes memory bytesString;
+    uint bytesLength;
+    uint bytesStart;
+    uint inputPos = 0;
+    bytes1 c;
+    //Find first speech marks
+    while (stringBytes[inputPos] != '"') {
+      inputPos++;
+    }
+    inputPos++;
+    bool reading = true;
+    for (inputPos = 0; inputPos < stringBytes.length - 1; inputPos++) {
+      c = stringBytes[inputPos];
+      if (c == '"') {
+        if (!reading) {
+          if (tokensFound == 0) {
+            nameStart = inputPos;
+          } else {
+            addrStart = inputPos;
+          }
+        }
+        if (reading) {
+          if (tokensFound == 0) {
+            nameEnd = inputPos;
+          } else {
+            addrEnd = inputPos;
+          }
+          tokensFound++;
+        }
+        reading = !reading;
+        continue;
+      }
+      if (reading) {
+        bytesLength++;
+      }
+    }
+    if (tokensFound != 2 || nameLength == 0 || addrLength == 0) {
+      return (false, "", "");
+    }
+    bytes memory nameBytes = new bytes(nameLength);
+    bytes memory addrBytes = new bytes(addrLength);
+    uint namePos = 0;
+    uint addrPos = 0;
+
+    for (inputPos = 0; inputPos < stringBytes.length - 1; inputPos++) {
+      c = stringBytes[inputPos];
+      if ((inputPos > nameStart) && (inputPos < nameEnd)) {
+        nameBytes[namePos] = c;
+        namePos++;
+      }
+      if ((inputPos > addrStart) && (inputPos < addrEnd)) {
+        addrBytes[addrPos] = c;
+        addrPos++;
+      }
+    }
+    return (true, string(name), string(addr));
+  }
+
+  /*function parseResult(string _input) internal returns (bool success, bytes name, bytes addr) {
+    bytes memory stringBytes = bytes(_input);
+
+    //Zero length input
+    if (stringBytes.length == 0) {
+      return (false, "", "");
+    }
+    //Non array input
+    if (stringBytes[0] != '[' || stringBytes[stringBytes.length - 1] != ']') {
+      return (false, "", "");
+    }
+    uint tokensFound = 0;
+    bool reading = false;
+    bytes1 c;
+    for (uint inputPos = 0; inputPos < stringBytes.length - 1; inputPos++) {
+      c = stringBytes[inputPos];
+      if (c == '"') {
+        if (reading) {
+          tokensFound++;
+        }
+        reading = !reading;
+        continue;
+      }
+      if (reading) {
+        if (tokensFound == 0) {
+          name.push(c);
+        } else {
+          addr.push(c);
+        }
+      }
+    }
+    if (tokensFound > 2) {
+      return (false, "", "");
+    }
+    return (true, name, addr);
+  }*/
+
+}
