@@ -5,6 +5,11 @@
 1. Start testrpc using `testrpc --gasLimit 10000000`. Larger gas is needed to execute test contract.
 1. Run `truffle compile`, then run `truffle migrate` to deploy the contracts onto testrpc network.
 1. Then run `truffle test` to run tests.
+1. To run the basic web frontend, you can run `npm run dev`.
+
+## Frontend
+
+* GUI deployed at: https://ipfs.io/ipfs/QmaQKposuKhVx1rKU5VVsXuuWjh9Av16T5av9oU5HWUJvE/
 
 ## Some notes
 
@@ -17,6 +22,8 @@
 * The contract is designed not to throw unless something very unexpected happens. Generally it will use Events to record any activity and issues, including e.g. the above.
 
 * Unit tests cover behaviour of Oraclize callback function, but not the Register function (which is trivial). This is because doing so would require deploying to a network running Oraclize contracts, or using the ethereum-bridge and dealing with asyncronous responses.
+
+* Calls to lookupAddr / lookupName will always return the most recently registered name / address respectively. Old addresses / names can still be passed to lookupAddr / Name and you will receive back valid names / addresses. Passing the returned name / address back into the lookupName / lookupAddr and comparing the response with the original input will tell you whether the registration is the most recent for the given original address / name.
 
 ## Expected test output
 

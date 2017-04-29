@@ -4,7 +4,9 @@ require('babel-register')
 module.exports = {
   networks: {
     development: {
-      gas: 9999999,      
+      //Increase to the below when running tests on testrpc
+      // gas: 9000000,
+      gas: 4612388,
       host: 'localhost',
       port: 8545,
       network_id: '*' // Match any network id

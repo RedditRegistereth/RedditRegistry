@@ -1,44 +1,54 @@
 pragma solidity ^0.4.8;
 
 import "../installed_contracts/oraclize/contracts/usingOraclize.sol";
+import '../installed_contracts/zeppelin/contracts/ownership/Ownable.sol';
 
-contract RedditRegister is usingOraclize {
+contract RegistrarI {
+  function register(string _proof, address _addr) payable returns(bytes32 oracleId);
+  function getCost() constant returns (uint cost);
+  //Below functions used for testing and internally
+  function _register(bytes32 oracleId, address expectedAddress, string proof);
+  function _callback(bytes32 _id, string _result);
+  function _clearOracleId(bytes32 oracleId);
+}
 
-  event NameAddressHashRegistered(string _name, address _addr, string _hash);
+contract RegistryI {
+  function update(string _name, address _addr, string _proof);
+  function error(bytes32 _id, address _addr, string _result, string _message);
+}
+
+contract RedditRegistrarURL is RegistrarI, Ownable, usingOraclize {
+
   event OracleQueryReceived(string _result, bytes32 _id);
   event OracleQuerySent(string _url, bytes32 _id);
-  event AddressMismatch(address _actual, address _expected);
-  event InsufficientFunds(uint _funds, uint _cost);
+  event AddressMismatch(address _oracleAddr, address _addr);
   event BadOracleResult(string _message, string _result, bytes32 _id);
 
-  enum OracleType { NAME, ADDR }
-
-  mapping (address => string) addrToName;
-  mapping (string => address) nameToAddr;
-  mapping (address => string) addrToHash;
   mapping (bytes32 => address) oracleExpectedAddress;
-  mapping (bytes32 => string) oracleHash;
+  mapping (bytes32 => string) oracleProof;
   mapping (bytes32 => bool) oracleCallbackComplete;
 
+  uint oraclizeGasLimit = 280000;
+
+  //json(https://www.reddit.com/r/ethereumproofs/comments/66xvua.json).0.data.children.0.data.[author,title]
   string queryUrlPrepend = 'json(https://www.reddit.com/r/ethereumproofs/comments/';
   string queryUrlAppend = '.json).0.data.children.0.data.[author,title]';
 
-  address owner;
+  RegistryI registry;
 
-  function RedditRegister() {
-    owner = msg.sender;
+  modifier onlyOraclizeOrOwner() {
+    if ((msg.sender != owner) && (msg.sender != oraclize_cbAddress())) {
+      throw;
+    }
+    _;
   }
 
-  function lookupAddr(address _addr) public constant returns(string name) {
-    return addrToName[_addr];
+  function RedditRegistrarURL() {
+    registry = RegistryI(msg.sender);
   }
 
-  function lookupHash(address _addr) public constant returns(string hash) {
-    return addrToHash[_addr];
-  }
-
-  function lookupName(string _name) public constant returns(address addr) {
-    return nameToAddr[_name];
+  function getCost() onlyOwner public constant returns(uint cost) {
+    return oraclize_getPrice("URL", oraclizeGasLimit);
   }
 
   function __callback(bytes32 _id, string _result) {
@@ -48,7 +58,7 @@ contract RedditRegister is usingOraclize {
     _callback(_id, _result);
   }
 
-  function _callback(bytes32 _id, string _result) internal {
+  function _callback(bytes32 _id, string _result) onlyOraclizeOrOwner {
 
     //Record callback received
     oracleCallbackComplete[_id] = true;
@@ -58,47 +68,40 @@ contract RedditRegister is usingOraclize {
     var (success, redditName, redditAddrString) = parseResult(_result);
     if (!success) {
       BadOracleResult("Incorrect length data returned from Oracle", _result, _id);
-      return;
+      registry.error(_id, oracleExpectedAddress[_id], _result, "Unable to parse Oraclize response");
+    } else {
+      //Check validity of claim to address
+      address redditAddr = parseAddr(redditAddrString);
+      if (oracleExpectedAddress[_id] != redditAddr) {
+        AddressMismatch(redditAddr, oracleExpectedAddress[_id]);
+        registry.error(_id, oracleExpectedAddress[_id], _result, "Address mismatch");
+      } else {
+        //We can now update our registry!!!
+        registry.update(redditName, redditAddr, oracleProof[_id]);
+      }
     }
-
-    //Check validity of claim to address
-    address redditAddr = parseAddr(redditAddrString);
-    if (oracleExpectedAddress[_id] != redditAddr) {
-      AddressMismatch(oracleExpectedAddress[_id], redditAddr);
-      return;
-    }
-
-    //We can now update our registry!!!
-    update(redditName, redditAddr, oracleHash[_id]);
 
   }
 
-  function register(string _hash, address _addr) public payable returns(bytes32 oracleId) {
+  function register(string _proof, address _addr) payable onlyOwner returns(bytes32 oracleId) {
 
-      //_addr not strictly needed - but we use it to do an upfront check to avoid wasted oracle queries
-      if (msg.sender != _addr) {
-        AddressMismatch(msg.sender, _addr);
-      }
-
-      uint oraclePrice = oraclize_getPrice("URL");
-      if (oraclePrice > this.balance) {
-        InsufficientFunds(this.balance, oraclePrice);
-      }
-
-      string memory oracleQuery = strConcat(queryUrlPrepend, _hash, queryUrlAppend);
-      oracleId = oraclize_query("URL", oracleQuery);
-      OracleQuerySent(oracleQuery, oracleId);
-      oracleExpectedAddress[oracleId] = msg.sender;
-      oracleHash[oracleId] = _hash;
+    string memory oracleQuery = strConcat(queryUrlPrepend, _proof, queryUrlAppend);
+    oracleId = oraclize_query("URL", oracleQuery, oraclizeGasLimit);
+    OracleQuerySent(oracleQuery, oracleId);
+    _register(oracleId, _addr, _proof);
+    return oracleId;
 
   }
 
-  function update(string _name, address _addr, string _hash) internal returns(bool success) {
-    addrToName[_addr] = _name;
-    nameToAddr[_name] = _addr;
-    addrToHash[_addr] = _hash;
-    NameAddressHashRegistered(_name, _addr, _hash);
-    return true;
+  function _register(bytes32 oracleId, address expectedAddress, string proof) onlyOwner {
+    oracleExpectedAddress[oracleId] = expectedAddress;
+    oracleProof[oracleId] = proof;
+  }
+
+  function _clearOracleId(bytes32 oracleId) onlyOwner {
+    oracleExpectedAddress[oracleId] = 0x0;
+    oracleProof[oracleId] = "";
+    oracleCallbackComplete[oracleId] = false;
   }
 
   function parseResult(string _input) internal returns (bool success, string name, string addr) {
