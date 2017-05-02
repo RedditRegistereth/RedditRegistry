@@ -14,6 +14,12 @@ module.exports = {
     ])
   ],
   module: {
+    loaders: [
+      // ...,
+      { test: /\.sol/, loader: 'truffle-solidity' }
+    ]
+  },
+  module: {
     rules: [
       {
        test: /\.css$/,

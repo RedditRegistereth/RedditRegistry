@@ -1,6 +1,6 @@
 {
 	"lockfile_version": "1",
-	"version": "1.0.3",
+	"version": "1.0.5",
 	"package_name": "oraclize",
 	"meta": {
 		"license": "MIT",
@@ -13,7 +13,7 @@
     	]
   	},
   	"sources": {
-    	"./contracts/usingOraclize.sol": "ipfs://QmYk8bgWzuc7fTWfGiwa6GB3f7m5SA2ZBzNkYAkxB7Rb3P" 
+    	"./contracts/usingOraclize.sol": "ipfs://QmWrjVJkSUhpBbM7TR4hN1kxiuFjzhvEobEwtLgquaCfPi" 
 	}
 }
 

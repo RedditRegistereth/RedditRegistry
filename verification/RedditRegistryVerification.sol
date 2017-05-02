@@ -1,34 +1,6 @@
-// <ORACLIZE_API>
-/*
-Copyright (c) 2015-2016 Oraclize SRL
-Copyright (c) 2016 Oraclize LTD
+pragma solidity ^0.4.8;
 
-
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-
-
-The above copyright notice and this permission notice shall be included in
-all copies or substantial portions of the Software.
-
-
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-THE SOFTWARE.
-*/
-
-pragma solidity ^0.4.0;//please import oraclizeAPI_pre0.4.sol when solidity < 0.4.0
+//Concatenation of contract used to verify code
 
 contract OraclizeI {
     address public cbAddress;
@@ -521,3 +493,266 @@ contract usingOraclize {
         }
 }
 // </ORACLIZE_API>
+contract Ownable {
+  address public owner;
+
+  function Ownable() {
+    owner = msg.sender;
+  }
+
+  modifier onlyOwner() {
+    if (msg.sender != owner) {
+      throw;
+    }
+    _;
+  }
+
+  function transferOwnership(address newOwner) onlyOwner {
+    if (newOwner != address(0)) {
+      owner = newOwner;
+    }
+  }
+
+}
+contract RegistrarI {
+  function register(string _proof, address _addr) payable returns(bytes32 oracleId);
+  function getCost() constant returns (uint cost);
+  //Below functions used for testing and internally
+  function _register(bytes32 oracleId, address expectedAddress, string proof);
+  function _callback(bytes32 _id, string _result);
+  function _clearOracleId(bytes32 oracleId);
+}
+
+contract RegistryI {
+  function update(string _name, address _addr, string _proof);
+  function error(bytes32 _id, address _addr, string _result, string _message);
+}
+
+contract RedditRegistrarURL is RegistrarI, Ownable, usingOraclize {
+
+  event OracleQueryReceived(string _result, bytes32 _id);
+  event OracleQuerySent(string _url, bytes32 _id);
+  event AddressMismatch(address _oracleAddr, address _addr);
+  event BadOracleResult(string _message, string _result, bytes32 _id);
+
+  mapping (bytes32 => address) oracleExpectedAddress;
+  mapping (bytes32 => string) oracleProof;
+  mapping (bytes32 => bool) oracleCallbackComplete;
+
+  uint oraclizeGasLimit = 280000;
+
+  //json(https://www.reddit.com/r/ethereumproofs/comments/66xvua.json).0.data.children.0.data.[author,title]
+  string queryUrlPrepend = 'json(https://www.reddit.com/r/ethereumproofs/comments/';
+  string queryUrlAppend = '.json).0.data.children.0.data.[author,title]';
+
+  RegistryI registry;
+
+  modifier onlyOraclizeOrOwner() {
+    if ((msg.sender != owner) && (msg.sender != oraclize_cbAddress())) {
+      throw;
+    }
+    _;
+  }
+
+  function RedditRegistrarURL() {
+    registry = RegistryI(msg.sender);
+  }
+
+  function getCost() onlyOwner public constant returns(uint cost) {
+    return oraclize_getPrice("URL", oraclizeGasLimit);
+  }
+
+  function __callback(bytes32 _id, string _result) {
+    //Check basic error conditions (throw on error)
+    if (msg.sender != oraclize_cbAddress()) throw;
+    if (oracleCallbackComplete[_id]) throw;
+    _callback(_id, _result);
+  }
+
+  function _callback(bytes32 _id, string _result) onlyOraclizeOrOwner {
+
+    //Record callback received
+    oracleCallbackComplete[_id] = true;
+    OracleQueryReceived(_result, _id);
+
+    //Check contract specific error conditions (set event and return on error)
+    var (success, redditName, redditAddrString) = parseResult(_result);
+    if (!success) {
+      BadOracleResult("Incorrect length data returned from Oracle", _result, _id);
+      registry.error(_id, oracleExpectedAddress[_id], _result, "Unable to parse Oraclize response");
+    } else {
+      //Check validity of claim to address
+      address redditAddr = parseAddr(redditAddrString);
+      if (oracleExpectedAddress[_id] != redditAddr) {
+        AddressMismatch(redditAddr, oracleExpectedAddress[_id]);
+        registry.error(_id, oracleExpectedAddress[_id], _result, "Address mismatch");
+      } else {
+        //We can now update our registry!!!
+        registry.update(redditName, redditAddr, oracleProof[_id]);
+      }
+    }
+
+  }
+
+  function register(string _proof, address _addr) payable onlyOwner returns(bytes32 oracleId) {
+
+    string memory oracleQuery = strConcat(queryUrlPrepend, _proof, queryUrlAppend);
+    oracleId = oraclize_query("URL", oracleQuery, oraclizeGasLimit);
+    OracleQuerySent(oracleQuery, oracleId);
+    _register(oracleId, _addr, _proof);
+    return oracleId;
+
+  }
+
+  function _register(bytes32 oracleId, address expectedAddress, string proof) onlyOwner {
+    oracleExpectedAddress[oracleId] = expectedAddress;
+    oracleProof[oracleId] = proof;
+  }
+
+  function _clearOracleId(bytes32 oracleId) onlyOwner {
+    oracleExpectedAddress[oracleId] = 0x0;
+    oracleProof[oracleId] = "";
+    oracleCallbackComplete[oracleId] = false;
+  }
+
+  function parseResult(string _input) internal returns (bool success, string name, string addr) {
+    bytes memory inputBytes = bytes(_input);
+    //Zero length input
+    if (inputBytes.length == 0) {
+      //below amounts to false, "", ""
+      return (success, name, addr);
+    }
+    //Non array input
+    if (inputBytes[0] != '[' || inputBytes[inputBytes.length - 1] != ']') {
+      return (success, name, addr);
+    }
+    //Sensible length (current reddit username is max. 20 chars, ethereum address is 42 chars)
+    if (inputBytes.length > 80) {
+      return (success, name, addr);
+    }
+    //Need to loop twice:
+    //Outer loop to determine length of token
+    //Inner loop to initialize token with correct length and populate
+    uint tokensFound = 0;
+    bytes memory bytesBuffer;
+    uint bytesLength = 0;
+    uint bytesStart;
+    uint inputPos = 0;
+    bytes1 c;
+    bool reading = false;
+    //We know first and last bytes are square brackets
+    for (inputPos = 1; inputPos < inputBytes.length - 1; inputPos++) {
+      //Ignore escaped speech marks
+      if ((inputBytes[inputPos] == '"') && (inputBytes[inputPos - 1] != '\\')) {
+        if (!reading) {
+          bytesStart = inputPos + 1;
+        }
+        if (reading) {
+          bytesBuffer = new bytes(bytesLength);
+          for (uint i = bytesStart; i < inputPos; i++) {
+            bytesBuffer[i - bytesStart] = inputBytes[i];
+          }
+          if (tokensFound == 0) {
+            name = string(bytesBuffer);
+          } else {
+            //Otherwise parseAddr will throw
+            if (bytesLength != 42) {
+              return (success, name, addr);
+            }
+            addr = string(bytesBuffer);
+          }
+          bytesLength = 0;
+          tokensFound++;
+        }
+        reading = !reading;
+        continue;
+      }
+      if (reading) {
+        bytesLength++;
+      }
+    }
+    if (tokensFound != 2) {
+      return (success, name, addr);
+    }
+    success = true;
+    return (success, name, addr);
+  }
+
+}
+
+library RegistrarFactory {
+  function newURLRegistrar() returns (RegistrarI) {
+    return new RedditRegistrarURL();
+  }
+}
+
+
+contract RedditRegistry is RegistryI, Ownable {
+
+  event RegistrationSent(string _proof, address _addr, bytes32 _id);
+  event NameAddressProofRegistered(string _name, address _addr, string _proof);
+  event RegistrarError(address _addr, bytes32 _id, string _result, string _message);
+  event AddressMismatch(address _actual, address _addr);
+  event InsufficientFunds(uint _funds, uint _cost, address _addr);
+
+  mapping (address => string) addrToName;
+  mapping (string => address) nameToAddr;
+  mapping (address => string) addrToProof;
+  mapping (string => string) nameToProof;
+
+  RegistrarI registrar;
+
+  modifier onlyRegistrar {
+    if (msg.sender != address(registrar)) throw;
+      _;
+  }
+
+  function RedditRegistry() {
+    registrar = RegistrarFactory.newURLRegistrar();
+  }
+
+  function lookupAddr(address _addr) public constant returns(string name, string proof) {
+    return (addrToName[_addr], addrToProof[_addr]);
+  }
+
+  function lookupName(string _name) public constant returns(address addr, string proof) {
+    return (nameToAddr[_name], nameToProof[_name]);
+  }
+
+  function register(string _proof, address _addr) public payable returns(bytes32 oracleId) {
+
+      //_addr not strictly needed - but we use it to do an upfront check to avoid wasted oracle queries
+      if (msg.sender != _addr) {
+        AddressMismatch(msg.sender, _addr);
+        return;
+      }
+
+      uint cost = registrar.getCost();
+      if (cost > this.balance) {
+        InsufficientFunds(this.balance, cost, _addr);
+        return;
+      }
+
+      bytes32 id = registrar.register.value(this.balance)(_proof, _addr);
+      RegistrationSent(_proof, _addr, id);
+      return id;
+
+  }
+
+  function getCost() public payable returns(uint cost) {
+    return registrar.getCost();
+  }
+
+  function update(string _name, address _addr, string _proof) onlyRegistrar {
+    addrToName[_addr] = _name;
+    nameToAddr[_name] = _addr;
+    addrToProof[_addr] = _proof;
+    nameToProof[_name] = _proof;
+    NameAddressProofRegistered(_name, _addr, _proof);
+  }
+
+  function error(bytes32 _id, address _addr, string _result, string _message) onlyRegistrar {
+    RegistrarError(_addr, _id, _result, _message);
+  }
+
+}
