@@ -8,8 +8,6 @@ import "./RegistrarI.sol";
 
 contract Registry is RegistryI, Ownable {
 
-  address public owner; //this allows to Augment with various custom metadata the Registry Contract using AlphaLayer
-
   event RegistrarUpdated(string _registrarType, address _registrar);
   event RegistrationSent(string _proof, address indexed _addr, bytes32 _id, uint8 _registrarType);
   event NameAddressProofRegistered(string _name, address indexed _addr, string _proof, bytes32 _id, uint8 _registrarType);
@@ -45,7 +43,6 @@ contract Registry is RegistryI, Ownable {
   }
 
   function Registry() {
-  owner=msg.sender; 
   }
 
   function createRegistrar(string _registrarType, address _registrar) public onlyOwner {
