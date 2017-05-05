@@ -8,6 +8,8 @@ import "./RegistrarI.sol";
 
 contract Registry is RegistryI, Ownable {
 
+  address public owner; //this allows to Augment with various custom metadata the Registry Contract using AlphaLayer
+
   event RegistrarUpdated(string _registrarType, address _registrar);
   event RegistrationSent(string _proof, address indexed _addr, bytes32 _id, uint8 _registrarType);
   event NameAddressProofRegistered(string _name, address indexed _addr, string _proof, bytes32 _id, uint8 _registrarType);
@@ -43,6 +45,7 @@ contract Registry is RegistryI, Ownable {
   }
 
   function Registry() {
+  owner=msg.sender; 
   }
 
   function createRegistrar(string _registrarType, address _registrar) public onlyOwner {
@@ -91,10 +94,24 @@ contract Registry is RegistryI, Ownable {
     addrToProof[registrarIdToType[_id]][_addr] = _proof;
     nameToProof[registrarIdToType[_id]][_name] = _proof;
     NameAddressProofRegistered(_name, _addr, _proof, _id, registrarIdToType[_id]);
+    logs.push(log(_addr,block.number));
   }
 
   function error(bytes32 _id, address _addr, string _result, string _message) onlyRegistrar {
     RegistrarError(_addr, _id, _result, _message, registrarIdToType[_id]);
   }
+  
+  log[] logs;
+
+    struct log{
+    address wallet;
+    uint blocknumber;
+   }
+
+//read the logs by index
+function readLog(uint i)constant returns(uint,address,uint){
+log l=logs[i];
+return(logs.length,l.wallet,l.blocknumber);
+}
 
 }
