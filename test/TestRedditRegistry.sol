@@ -3,9 +3,11 @@ pragma solidity ^0.4.8;
 import "truffle/Assert.sol";
 import "truffle/DeployedAddresses.sol";
 
-import "../contracts/RedditRegistry.sol";
+import "../contracts/Registry.sol";
+import "../contracts/RedditRegistrarComputation.sol";
+import "../contracts/GithubRegistrarComputation.sol";
 
-contract TestRedditRegistry is RedditRegistry {
+contract TestRedditRegistry is Registry {
 
   string proof_1 = "proof_1";
   address addr_1 = 0x9a9d8ff9854a2722a76a99de6c1bb71d93898ef5;
@@ -20,35 +22,46 @@ contract TestRedditRegistry is RedditRegistry {
   string emptyString = "";
   address emptyAddress = 0x0;
 
+  uint8 registrarIndex = 1;
+
+  function beforeAll() {
+    registrars.push(new RedditRegistrarComputation(address(this)));
+    registrarTypes.push("reddit");
+    registrars.push(new GithubRegistrarComputation(address(this)));
+    registrarTypes.push("github");
+  }
+
   function beforeEach() {
 
     //Clear variables
-    addrToName[addr_1] = emptyString;
-    nameToAddr[name_1] = emptyAddress;
-    addrToProof[addr_1] = emptyString;
-    nameToProof[name_1] = emptyString;
-    registrar._clearOracleId(oracleId_1);
+    addrToName[registrarIndex][addr_1] = emptyString;
+    nameToAddr[registrarIndex][name_1] = emptyAddress;
+    addrToProof[registrarIndex][addr_1] = emptyString;
+    nameToProof[registrarIndex][name_1] = emptyString;
+    registrars[registrarIndex]._clearOracleId(oracleId_1);
 
-    addrToName[addr_2] = emptyString;
-    nameToAddr[name_2] = emptyAddress;
-    addrToProof[addr_2] = emptyString;
-    nameToProof[name_2] = emptyString;
-    registrar._clearOracleId(oracleId_2);
+    addrToName[registrarIndex][addr_2] = emptyString;
+    nameToAddr[registrarIndex][name_2] = emptyAddress;
+    addrToProof[registrarIndex][addr_2] = emptyString;
+    nameToProof[registrarIndex][name_2] = emptyString;
+    registrars[registrarIndex]._clearOracleId(oracleId_2);
 
     //Mimic the register function here
-    registrar._register(oracleId_1, addr_1, proof_1);
-    registrar._register(oracleId_2, addr_2, proof_2);
+    registrars[registrarIndex]._register(oracleId_1, addr_1, proof_1);
+    registrars[registrarIndex]._register(oracleId_2, addr_2, proof_2);
+    registrarIdToType[oracleId_1] = registrarIndex;
+    registrarIdToType[oracleId_2] = registrarIndex;
 
   }
 
   function checkData(address addrInput, string nameInput, bytes32 oracleIdInput, address addrExpected, string nameExpected, string addrProofExpected, string nameProofExpected) {
     string memory nameResponse;
     string memory nameProofResponse;
-    (nameResponse, nameProofResponse) = lookupAddr(addrInput);
+    (nameResponse, nameProofResponse) = lookupAddr(addrInput, registrarIndex);
     Assert.equal(nameResponse, nameExpected, "Name values unexpected");
     address addrResponse;
     string memory addrProofResponse;
-    (addrResponse, addrProofResponse) = lookupName(nameInput);
+    (addrResponse, addrProofResponse) = lookupName(nameInput, registrarIndex);
     Assert.equal(addrResponse, addrExpected, "Address values unexpected");
     Assert.equal(addrProofResponse, addrProofExpected, "Proof should have registered");
     Assert.equal(nameProofResponse, nameProofExpected, "Proof should have registered");
@@ -57,34 +70,39 @@ contract TestRedditRegistry is RedditRegistry {
   function testCallback() {
 
     //Mixed case input
-    registrar._callback(oracleId_1, '["user_1", "0x9a9d8FF9854a2722a76a99de6c1Bb71d93898eF5"]');
+    registrars[registrarIndex]._callback(oracleId_1, '["user_1", "0x9a9d8FF9854a2722a76a99de6c1Bb71d93898eF5"]');
     checkData(addr_1, name_1, oracleId_1, addr_1, name_1, proof_1, proof_1);
 
     //Do another one
-    registrar._callback(oracleId_2, '["user_2", "0x109d8ff9854a2722a76a99de6c1bb71d93898ef5"]');
+    registrars[registrarIndex]._callback(oracleId_2, '["user_2", "0x109d8ff9854a2722a76a99de6c1bb71d93898ef5"]');
     checkData(addr_2, name_2, oracleId_2, addr_2, name_2, proof_2, proof_2);
 
   }
 
   function testCallback_wrong_length_address() {
-    registrar._callback(oracleId_1, '["user_1", "0x9a9FF9854a2722a76a99de6c1Bb71d93898eF5"]');
+    registrars[registrarIndex]._callback(oracleId_1, '["user_1", "0x9a9FF9854a2722a76a99de6c1Bb71d93898eF5"]');
     checkData(addr_1, name_1, oracleId_1, emptyAddress, emptyString, emptyString, emptyString);
   }
 
   function testCallback_nonArray() {
-    registrar._callback(oracleId_1, '"user_1", "0x9a9d8FF9854a2722a76a99de6c1Bb71d93898eF5"');
+    registrars[registrarIndex]._callback(oracleId_1, '"user_1", "0x9a9d8FF9854a2722a76a99de6c1Bb71d93898eF5"');
+    checkData(addr_1, name_1, oracleId_1, emptyAddress, emptyString, emptyString, emptyString);
+  }
+
+  function testCallback_wrongAddress() {
+    registrars[registrarIndex]._callback(oracleId_1, '["user_1", "0x9a9d8FF9854a2722a76a99de6c1Bb71e93898eF5"]');
     checkData(addr_1, name_1, oracleId_1, emptyAddress, emptyString, emptyString, emptyString);
   }
 
   function testCallback_empty() {
-    registrar._callback(oracleId_1, '');
+    registrars[registrarIndex]._callback(oracleId_1, '');
     checkData(addr_1, name_1, oracleId_1, emptyAddress, emptyString, emptyString, emptyString);
   }
 
   function testCallback_goodAndBad() {
 
     //Do a good one - we user _2 here as testCallback_empty expects _1 to be clean
-    registrar._callback(oracleId_2, '["user_2", "0x109d8ff9854a2722a76a99de6c1bb71d93898ef5"]');
+    registrars[registrarIndex]._callback(oracleId_2, '["user_2", "0x109d8ff9854a2722a76a99de6c1bb71d93898ef5"]');
     checkData(addr_2, name_2, oracleId_2, addr_2, name_2, proof_2, proof_2);
 
     //Do a bad one
@@ -94,7 +112,7 @@ contract TestRedditRegistry is RedditRegistry {
     checkData(addr_2, name_2, oracleId_2, addr_2, name_2, proof_2, proof_2);
 
     //Do another good one
-    registrar._callback(oracleId_1, '["user_1", "0x9a9d8FF9854a2722a76a99de6c1Bb71d93898eF5"]');
+    registrars[registrarIndex]._callback(oracleId_1, '["user_1", "0x9a9d8FF9854a2722a76a99de6c1Bb71d93898eF5"]');
     checkData(addr_1, name_1, oracleId_1, addr_1, name_1, proof_1, proof_1);
 
   }
@@ -102,17 +120,18 @@ contract TestRedditRegistry is RedditRegistry {
   function testCallback_changeName() {
 
     //First name updated
-    registrar._callback(oracleId_1, '["user_1", "0x9a9d8FF9854a2722a76a99de6c1Bb71d93898eF5"]');
+    registrars[registrarIndex]._callback(oracleId_1, '["user_1", "0x9a9d8FF9854a2722a76a99de6c1Bb71d93898eF5"]');
     checkData(addr_1, name_1, oracleId_1, addr_1, name_1, proof_1, proof_1);
 
     //Second name registered
     bytes32 oracleId_1_1 = "0x03";
     string memory name_1_1 = "user_1_1";
     string memory proof_1_1 = "proof_1_1";
-    registrar._register(oracleId_1_1, addr_1, proof_1_1);
+    registrars[registrarIndex]._register(oracleId_1_1, addr_1, proof_1_1);
+    registrarIdToType[oracleId_1_1] = registrarIndex;
 
     //Change name to "user_1_1"
-    registrar._callback(oracleId_1_1, '["user_1_1", "0x9a9d8FF9854a2722a76a99de6c1Bb71d93898eF5"]');
+    registrars[registrarIndex]._callback(oracleId_1_1, '["user_1_1", "0x9a9d8FF9854a2722a76a99de6c1Bb71d93898eF5"]');
     checkData(addr_1, name_1_1, oracleId_1_1, addr_1, name_1_1, proof_1_1, proof_1_1);
 
     //Check that original name is still mapped
@@ -123,17 +142,18 @@ contract TestRedditRegistry is RedditRegistry {
   function testCallback_changeAddress() {
 
     //First address updated
-    registrar._callback(oracleId_1, '["user_1", "0x9a9d8FF9854a2722a76a99de6c1Bb71d93898eF5"]');
+    registrars[registrarIndex]._callback(oracleId_1, '["user_1", "0x9a9d8FF9854a2722a76a99de6c1Bb71d93898eF5"]');
     checkData(addr_1, name_1, oracleId_1, addr_1, name_1, proof_1, proof_1);
 
     //Second address registered
     bytes32 oracleId_1_1 = "0x03";
     address addr_1_1 = 0x209d8ff9854a2722a76a99de6c1bb71d93898ef5;
     string memory proof_1_1 = "proof_1_1";
-    registrar._register(oracleId_1_1, addr_1_1, proof_1_1);
+    registrars[registrarIndex]._register(oracleId_1_1, addr_1_1, proof_1_1);
+    registrarIdToType[oracleId_1_1] = registrarIndex;
 
     //Change addr to "0x209d8ff9854a2722a76a99de6c1bb71d93898ef5"
-    registrar._callback(oracleId_1_1, '["user_1", "0x209d8ff9854a2722a76a99de6c1bb71d93898ef5"]');
+    registrars[registrarIndex]._callback(oracleId_1_1, '["user_1", "0x209d8ff9854a2722a76a99de6c1bb71d93898ef5"]');
     checkData(addr_1_1, name_1, oracleId_1_1, addr_1_1, name_1, proof_1_1, proof_1_1);
 
     //Check that original name is still mapped

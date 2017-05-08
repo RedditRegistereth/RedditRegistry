@@ -6,10 +6,12 @@ import { default as Web3} from 'web3';
 import { default as contract } from 'truffle-contract'
 
 // Import our contract artifacts and turn them into usable abstractions.
-import redditRegistry_artifacts from '../../build/contracts/RedditRegistry.json'
+import registry_artifacts from '../../build/contracts/Registry.json'
 
-// RedditRegistry is our usable abstraction, which we'll use through the code below.
-var RedditRegistry = contract(redditRegistry_artifacts);
+// Registry is our usable abstraction, which we'll use through the code below.
+var Registry = contract(registry_artifacts);
+
+var registrarType = 0;
 
 var accounts;
 var account;
@@ -21,8 +23,8 @@ window.App = {
   start: function() {
     var self = this;
 
-    // Bootstrap the RedditRegistry abstraction for use.
-    RedditRegistry.setProvider(web3.currentProvider);
+    // Bootstrap the Registry abstraction for use.
+    Registry.setProvider(web3.currentProvider);
     self.refreshAccount();
   },
 
@@ -41,12 +43,14 @@ window.App = {
 
       accounts = accs;
       account = accounts[0];
-      self.refreshLink(account);
-      self.refreshRegister(account);
+      self.watchEvents();
+      self.refreshLink();
+      self.refreshRegister();
     });
   },
 
-  refreshLink: function(account) {
+  refreshLink: function() {
+    var self = this;
     var reddit_link = document.getElementById("redditLink");
     reddit_link.href = "https://www.reddit.com/r/ethereumproofs/submit?selftext=true&title=" + account;
   },
@@ -66,16 +70,69 @@ window.App = {
     addr_element.value = addr;
   },
 
-  refreshRegister: function(account) {
+  watchEvents: function() {
+    var self = this;
+    var registerEventBlockNumber = 0;
+    var redditRegistry;
+    Registry.deployed().then(function(instance) {
+      redditRegistry = instance;
+      var nameAddressProofEvent = redditRegistry.NameAddressProofRegistered({_addr: account}, {fromBlock: 0, toBlock: 'latest'});
+      nameAddressProofEvent.watch(function(error, result){
+        if (result.blockNumber >= registerEventBlockNumber) {
+          self.refreshRegister();
+          self.setRegisterStatus(result.event);
+          registerEventBlockNumber = result.blockNumber;
+        }
+        console.log(result.args);
+      });
+
+      var addressMismatchEvent = redditRegistry.AddressMismatch({_addr: account}, {fromBlock: 0, toBlock: 'latest'});
+      addressMismatchEvent.watch(function(error, result){
+        if (result.blockNumber >= registerEventBlockNumber) {
+          self.refreshRegister();
+          self.setRegisterStatus(result.event);
+          registerEventBlockNumber = result.blockNumber;
+        }
+        console.log(result.args);
+      });
+
+      var registrationSentEvent = redditRegistry.RegistrationSent({_addr: account}, {fromBlock: 0, toBlock: 'latest'});
+      registrationSentEvent.watch(function(error, result){
+        if (result.blockNumber >= registerEventBlockNumber) {
+          self.refreshRegister();
+          self.setRegisterStatus(result.event);
+          registerEventBlockNumber = result.blockNumber;
+        }
+        console.log(result.args);
+      });
+
+      var registrarErrorEvent  = redditRegistry.RegistrarError({_addr: account}, {fromBlock: 0, toBlock: 'latest'});
+      registrarErrorEvent.watch(function(error, result){
+        if (result.blockNumber >= registerEventBlockNumber) {
+          self.refreshRegister();
+          self.setRegisterStatus(result.event + ": " + result.args["_message"]);
+          registerEventBlockNumber = result.blockNumber;
+        }
+        console.log(result.args);
+      });
+
+    }).catch(function(e) {
+      console.log(e);
+      self.setRegisterStatus("Unable to watch events; see log.");
+    });
+
+  },
+
+  refreshRegister: function() {
 
     var self = this;
-    var redditRegister;
+    var redditRegistry;
 
     self.setAddress(account);
 
-    RedditRegistry.deployed().then(function(instance) {
-      redditRegister = instance;
-      return redditRegister.lookupAddr.call(account, {from: account});
+    Registry.deployed().then(function(instance) {
+      redditRegistry = instance;
+      return redditRegistry.lookupAddr.call(account, registrarType, {from: account});
     }).then(function(result) {
       var name_element = document.getElementById("name");
       var proofUrl_element = document.getElementById("proofUrl");
@@ -86,46 +143,6 @@ window.App = {
         name_element.innerHTML = result[0];
         proofUrl_element.innerHTML = proofUrlPrepend + result[1] + proofUrlAppend;
       }
-    }).then(function() {
-
-      var registerEventBlockNumber = 0;
-
-      var nameAddressProofEvent = redditRegister.NameAddressProofRegistered({_addr: account}, {fromBlock: 0, toBlock: 'latest'});
-      nameAddressProofEvent.watch(function(error, result){
-        if (result.blockNumber >= registerEventBlockNumber) {
-          self.setRegisterStatus(result.event);
-          registerEventBlockNumber = result.blockNumber;
-        }
-        console.log(result.args);
-      });
-
-      var addressMismatchEvent = redditRegister.AddressMismatch({_addr: account}, {fromBlock: 0, toBlock: 'latest'});
-      addressMismatchEvent.watch(function(error, result){
-        if (result.blockNumber >= registerEventBlockNumber) {
-          self.setRegisterStatus(result.event);
-          registerEventBlockNumber = result.blockNumber;
-        }
-        console.log(result.args);
-      });
-
-      var registrationSentEvent = redditRegister.RegistrationSent({_addr: account}, {fromBlock: 0, toBlock: 'latest'});
-      registrationSentEvent.watch(function(error, result){
-        if (result.blockNumber >= registerEventBlockNumber) {
-          self.setRegisterStatus(result.event);
-          registerEventBlockNumber = result.blockNumber;
-        }
-        console.log(result.args);
-      });
-
-      var registrarErrorEvent  = redditRegister.RegistrarError({_addr: account}, {fromBlock: 0, toBlock: 'latest'});
-      registrarErrorEvent.watch(function(error, result){
-        if (result.blockNumber >= registerEventBlockNumber) {
-          self.setRegisterStatus(result.event + ": " + result.args["_message"]);
-          registerEventBlockNumber = result.blockNumber;
-        }
-        console.log(result.args);
-      });
-
     }).catch(function(e) {
       console.log(e);
       self.setRegisterStatus("Error getting reddit name; see log.");
@@ -134,30 +151,32 @@ window.App = {
   },
 
   register: function() {
+
     var self = this;
 
     var addr = document.getElementById("addr").value;
     var proof = document.getElementById("proof").value;
 
-    var redditRegister;
-    RedditRegistry.deployed().then(function(instance) {
-      redditRegister = instance;
-      return redditRegister.getCost.call({from: account});
+    var redditRegistry;
+    Registry.deployed().then(function(instance) {
+      redditRegistry = instance;
+      return redditRegistry.getCost.call(registrarType, {from: account});
     }).then(function(price) {
-      return redditRegister.register(proof, addr, {from: account, value: price.toNumber()});
+      return redditRegistry.register(proof, addr, registrarType, {from: account, value: price.toNumber()});
     }).catch(function(e) {
       console.log(e);
       self.setRegisterStatus("Error registering; see log.");
     });
+
   },
 
   lookupAddr: function() {
     var self = this;
     var addr = document.getElementById("lookupAddr").value;
-    var redditRegister;
-    RedditRegistry.deployed().then(function(instance) {
-      redditRegister = instance;
-      return redditRegister.lookupAddr.call(addr, {from: account});
+    var redditRegistry;
+    Registry.deployed().then(function(instance) {
+      redditRegistry = instance;
+      return registry.lookupAddr.call(addr, registrarType, {from: account});
     }).then(function(result) {
       var name_element = document.getElementById("lookupName");
       self.updateLookupProofUrl(result[1]);
@@ -171,10 +190,10 @@ window.App = {
   lookupName: function() {
     var self = this;
     var name = document.getElementById("lookupName").value;
-    var redditRegister;
-    RedditRegistry.deployed().then(function(instance) {
-      redditRegister = instance;
-      return redditRegister.lookupName.call(name, {from: account});
+    var redditRegistry;
+    Registry.deployed().then(function(instance) {
+      redditRegistry = instance;
+      return redditRegistry.lookupName.call(name, registrarType, {from: account});
     }).then(function(result) {
       var addr_element = document.getElementById("lookupAddr");
       self.updateLookupProofUrl(result[1]);
