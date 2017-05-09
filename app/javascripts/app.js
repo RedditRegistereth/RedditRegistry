@@ -176,7 +176,7 @@ window.App = {
     var redditRegistry;
     Registry.deployed().then(function(instance) {
       redditRegistry = instance;
-      return registry.lookupAddr.call(addr, registrarType, {from: account});
+      return redditRegistry.lookupAddr.call(addr, registrarType, {from: account});
     }).then(function(result) {
       var name_element = document.getElementById("lookupName");
       self.updateLookupProofUrl(result[1]);

@@ -81,7 +81,7 @@ contract Registry is RegistryI, Ownable {
 
   }
 
-  function getCost(uint8 _registrarType) public payable validRegistrar(_registrarType) returns(uint cost) {
+  function getCost(uint8 _registrarType) public constant validRegistrar(_registrarType) returns(uint cost) {
     return registrars[_registrarType].getCost();
   }
 
