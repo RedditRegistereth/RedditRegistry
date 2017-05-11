@@ -91,10 +91,24 @@ contract Registry is RegistryI, Ownable {
     addrToProof[registrarIdToType[_id]][_addr] = _proof;
     nameToProof[registrarIdToType[_id]][_name] = _proof;
     NameAddressProofRegistered(_name, _addr, _proof, _id, registrarIdToType[_id]);
+    logs.push(log(_addr,block.number));
   }
 
   function error(bytes32 _id, address _addr, string _result, string _message) onlyRegistrar {
     RegistrarError(_addr, _id, _result, _message, registrarIdToType[_id]);
   }
+  
+  log[] logs;
+
+    struct log{
+    address wallet;
+    uint blocknumber;
+   }
+
+//read the logs by index
+function readLog(uint i)constant returns(uint,address,uint){
+log l=logs[i];
+return(logs.length,l.wallet,l.blocknumber);
+}
 
 }
